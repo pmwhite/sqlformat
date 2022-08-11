@@ -448,52 +448,8 @@ let parse_file: Syntax.File Parser =
         return (Syntax.Batches batches)
     }
 
-module Buf =
-    type t =
-        { mutable indent: int
-          mutable at_start_of_line: bool
-          builder: System.Text.StringBuilder }
-
-    let string t (s: string) =
-        if t.at_start_of_line then
-            for _ in 0 .. (t.indent * 4) do
-                ignore (t.builder.Append ' ')
-
-        t.at_start_of_line <- false
-        ignore (t.builder.Append s)
-
-    let newline t =
-        ignore (t.builder.Append '\n')
-        t.at_start_of_line <- true
-
-    let indent t = t.indent <- t.indent + 1
-    let dedent t = t.indent <- t.indent - 1
-
-    let create (capacity: int) =
-        { indent = 0
-          at_start_of_line = true
-          builder = new System.Text.StringBuilder(capacity) }
-
-    let contents t = t.builder.ToString()
-
-    let iter_sep_by xs sep f =
-        match xs with
-        | [] -> ()
-        | x :: xs ->
-            f x
-
-            List.iter
-                (fun x ->
-                    sep ()
-                    f x)
-                xs
-
-
 let pp_path (Syntax.Path path) =
     Pretty.hlist_sepby "." (List.map Pretty.string path)
-
-let format_path buf (Syntax.Path path) =
-    Buf.iter_sep_by path (fun () -> Buf.string buf ".") (Buf.string buf)
 
 let rec pp_expression expression : Pretty.t =
     match expression with
@@ -553,85 +509,6 @@ and pp_select_statement
     * ("  " + pp_expression from)
     * where
 
-
-let rec format_expression buf expression =
-    match expression with
-    | Syntax.Literal literal -> Buf.string buf literal
-    | Syntax.Name path -> format_path buf path
-    | Syntax.Asterisk ((Syntax.Path parts) as path) ->
-        match parts with
-        | [] -> Buf.string buf "*"
-        | _ :: _ ->
-            format_path buf path
-            Buf.string buf ".*"
-    | Syntax.Call { function_name = function_name
-                    parameters = parameters } ->
-        format_path buf function_name
-        Buf.string buf "("
-        Buf.iter_sep_by parameters (fun () -> Buf.string buf ", ") (format_expression buf)
-        Buf.string buf ")"
-    | Syntax.As { name = name; expression = expression } ->
-        format_expression buf expression
-        Buf.string buf " AS "
-        Buf.string buf name
-    | Syntax.In { condition = condition
-                  subquery = subquery } ->
-        format_expression buf condition
-        Buf.string buf " IN"
-        Buf.newline buf
-        Buf.indent buf
-        Buf.string buf "("
-        format_select_statement buf subquery
-        Buf.string buf ")"
-        Buf.dedent buf
-    | Syntax.Equals (left, right) ->
-        format_expression buf left
-        Buf.string buf " = "
-        format_expression buf right
-
-and format_select_statement
-    buf
-    ({ distinct = distinct
-       select_list = select_list
-       from = from
-       where = where
-       top = top }: Syntax.SelectStatement)
-    =
-    Buf.string buf "SELECT "
-
-    match distinct with
-    | Some Syntax.All -> Buf.string buf "ALL "
-    | Some Syntax.Distinct -> Buf.string buf "DISTINCT "
-    | None -> ()
-
-    Buf.newline buf
-    Buf.indent buf
-
-    Buf.iter_sep_by
-        select_list
-        (fun () ->
-            Buf.string buf ","
-            Buf.newline buf)
-        (format_expression buf)
-
-    Buf.dedent buf
-    Buf.newline buf
-    Buf.string buf "FROM"
-    Buf.newline buf
-    Buf.indent buf
-    format_expression buf from
-    Buf.dedent buf
-
-    match where with
-    | Some where ->
-        Buf.newline buf
-        Buf.string buf "WHERE "
-        Buf.newline buf
-        Buf.indent buf
-        format_expression buf where
-        Buf.dedent buf
-    | None -> ()
-
 let pp_sql_clause clause =
     match clause with
     | Syntax.Dml { locals = locals; body = body } ->
@@ -660,68 +537,13 @@ let pp_sql_clause clause =
 
         "WITH" * ("    " + locals) * body
 
-let format_sql_clause buf clause =
-    match clause with
-    | Syntax.Dml { locals = locals; body = body } ->
-        match locals with
-        | [] -> ()
-        | _ :: _ ->
-            Buf.string buf "WITH"
-            Buf.newline buf
-            Buf.indent buf
-
-            Buf.iter_sep_by
-                locals
-                (fun () -> Buf.newline buf)
-                (fun { name = name
-                       columns = columns
-                       query = query } ->
-                    Buf.string buf name
-
-                    match columns with
-                    | Some columns ->
-                        Buf.string buf "("
-                        Buf.iter_sep_by columns (fun () -> Buf.string buf ", ") (Buf.string buf)
-                        Buf.string buf ")"
-                    | None -> ()
-
-                    Buf.newline buf
-                    Buf.indent buf
-                    Buf.string buf "AS ("
-                    Buf.indent buf
-                    format_select_statement buf query
-                    Buf.string buf ")"
-                    Buf.dedent buf
-                    Buf.dedent buf)
-
-            Buf.newline buf
-            Buf.dedent buf
-
-        match body with
-        | Syntax.Select select_statement -> format_select_statement buf select_statement
-
 let pp_batch batch =
     match batch with
     | Syntax.Go { count = count } -> Pretty.string "GO " + count.ToString()
     | Syntax.Sql clauses -> Pretty.vlist (List.map pp_sql_clause clauses)
 
-let format_batch buf batch =
-    match batch with
-    | Syntax.Go { count = count } ->
-        Buf.string buf "GO "
-        Buf.string buf (count.ToString())
-    | Syntax.Sql clauses -> Buf.iter_sep_by clauses (fun () -> Buf.newline buf) (format_sql_clause buf)
-
 let pp_file (Syntax.Batches batches) =
     Pretty.vlist_sepby "" (List.map pp_batch batches)
-
-let format_file buf (Syntax.Batches batches: Syntax.File) =
-    Buf.iter_sep_by
-        batches
-        (fun () ->
-            Buf.newline buf
-            Buf.newline buf)
-        (format_batch buf)
 
 let main () =
     let filename = get_filename ()
