@@ -490,14 +490,6 @@ module Buf =
 
 module Pretty =
 
-    type XGravity =
-        | Left
-        | Right
-
-    type YGravity =
-        | Up
-        | Down
-
     type kind =
         | Empty
         | String of string
@@ -509,15 +501,13 @@ module Pretty =
         { kind: kind
           width: int
           height: int
-          x_gravity: XGravity
-          y_gravity: YGravity }
+          last_line_width: int }
 
     let empty =
         { kind = Empty
           width = 0
           height = 0
-          x_gravity = Left
-          y_gravity = Up }
+          last_line_width = 0 }
 
     let string (s: string) =
         assert (not (s.Contains '\n'))
@@ -525,29 +515,25 @@ module Pretty =
         { kind = String s
           width = s.Length
           height = 1
-          x_gravity = Left
-          y_gravity = Up }
+          last_line_width = s.Length }
 
     let horizontal left right =
         { kind = Horizontal(left, right)
-          width = left.width + right.width
+          width = max left.width (left.last_line_width + right.width)
           height = max left.height right.height
-          x_gravity = Left
-          y_gravity = Up }
+          last_line_width = left.last_line_width + right.last_line_width }
 
     let vertical left right =
         { kind = Vertical(left, right)
           width = max left.width right.width
           height = left.height + right.height
-          x_gravity = Left
-          y_gravity = Up }
+          last_line_width = right.last_line_width }
 
     let or_else primary secondary =
         { kind = Or_else(primary, secondary)
           width = primary.width
           height = primary.height
-          x_gravity = Left
-          y_gravity = Up }
+          last_line_width = primary.last_line_width }
 
     type t with
         static member (+)(left, right) = horizontal left right
@@ -558,41 +544,34 @@ module Pretty =
         static member (*)(left, right) = vertical (string left) right
         static member op_Implicit(a: string) = string a
 
-    let gravity_left t = { t with x_gravity = Left }
-    let gravity_right t = { t with x_gravity = Right }
-    let gravity_up t = { t with y_gravity = Up }
-    let gravity_down t = { t with y_gravity = Down }
-
     let to_string t =
+        let rec split_last acc ts =
+            match ts with
+            | [] -> None
+            | [ hd ] -> Some(hd, List.rev acc)
+            | hd :: (_ :: _ as tl) -> split_last (hd :: acc) tl
+
         let rec lines t =
             match t.kind with
             | Empty -> []
             | String s -> [ s ]
             | Horizontal (left, right) ->
-                let padded_lines x =
-                    let padding_length = t.height - x.height
-                    let padding_line = String.replicate x.width " "
-                    let padding_lines = List.replicate padding_length padding_line
+                let left_lines = lines left
+                let right_lines = lines right
 
-                    match x.y_gravity with
-                    | Up -> lines x @ padding_lines
-                    | Down -> padding_lines @ lines x
+                match split_last [] left_lines with
+                | Some (left_last, left_rest) ->
+                    match right_lines with
+                    | [] -> left_lines
+                    | right_first :: right_rest ->
+                        let padding_string = String.replicate left.last_line_width " "
+                        let right_rest = List.map (fun line -> padding_string + line) right_rest
 
-                let left = padded_lines left
-                let right = padded_lines right
-                assert (List.length left = List.length right)
-                List.map (fun (left, right) -> left + right) (List.zip left right)
+                        left_rest
+                        @ (left_last + right_first :: right_rest)
+                | None -> right_lines
             | Or_else (primary, _) -> lines primary
-            | Vertical (above, below) ->
-                let padded_lines x =
-                    let padding_length = t.width - x.width
-                    let padding_string = String.replicate padding_length " "
-
-                    match x.x_gravity with
-                    | Left -> List.map (fun line -> line + padding_string) (lines x)
-                    | Right -> List.map (fun line -> padding_string + line) (lines x)
-
-                padded_lines above @ padded_lines below
+            | Vertical (above, below) -> lines above @ lines below
 
         String.concat "\n" (lines t)
 
@@ -656,10 +635,7 @@ let rec pp_expression expression : Pretty.t =
                   subquery = subquery } ->
         let line1 = pp_expression condition + " IN"
 
-        let line2 =
-            "("
-            + pp_select_statement subquery
-            + Pretty.gravity_down ")"
+        let line2 = "(" + pp_select_statement subquery + ")"
 
         line1 * line2
     | Syntax.Equals (left, right) -> pp_expression left + " = " + pp_expression right
@@ -794,10 +770,8 @@ let pp_sql_clause clause =
                         | Some columns -> Pretty.hlist_sepby ", " (List.map Pretty.string columns)
                         | None -> Pretty.empty
 
-                    (name + "(" + columns + Pretty.gravity_down ")")
-                    * ("AS ("
-                       + pp_select_statement query
-                       + Pretty.gravity_down ")")
+                    (name + "(" + columns + ")")
+                    * ("AS (" + pp_select_statement query + ")")
 
                 Pretty.vlist (List.map f locals)
 
