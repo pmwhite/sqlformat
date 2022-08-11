@@ -9,14 +9,17 @@ let log_error message = errors <- message :: errors
 
 exception FatalError
 
-let get_filename () =
+type cli_args = { filename: string; max_width: int }
+
+let get_cli_args () =
     let args = System.Environment.GetCommandLineArgs()
 
-    if args.Length <> 2 then
-        log_error "This program must be invoked with one argument - the filename to format"
+    if args.Length <> 3 then
+        log_error "usage: ./sqlformat <filename> <max-width>"
         raise FatalError
     else
-        args[1]
+        { filename = args[1]
+          max_width = int args[2] }
 
 let get_file_tokens filename =
     let file_stream =
@@ -465,7 +468,9 @@ let rec pp_expression expression : Pretty.t =
         + "("
         + Pretty.hlist_sepby ", " (List.map pp_expression parameters)
         + ")"
-    | Syntax.As { name = name; expression = expression } -> pp_expression expression + " AS " + name
+    | Syntax.As { name = name; expression = expression } ->
+        let expression = pp_expression expression
+        Pretty.or_else (expression + " AS " + name) (expression * ("AS " + name))
     | Syntax.In { condition = condition
                   subquery = subquery } ->
         let line1 = pp_expression condition + " IN"
@@ -490,24 +495,36 @@ and pp_select_statement
 
     let line1 = "SELECT " + distinct
 
-    let line2 =
+    let select_list_items = (List.map pp_expression select_list)
+
+    let one_line_select_list =
+        match select_list with
+        | [] -> Pretty.empty
+        | _ :: _ -> Pretty.hlist_sepby ", " select_list_items
+
+    let multi_line_select_list =
         match select_list with
         | [] -> Pretty.empty
         | hd :: tl ->
             let hd = "  " + pp_expression hd
-            let tl = List.map (fun item -> ", " + pp_expression item) tl
-            Pretty.vlist (hd :: tl)
+            let tl = List.map (fun item -> ", " + item) select_list_items
+            "    " + Pretty.vlist (hd :: tl)
+
+    let select_list = Pretty.or_else one_line_select_list multi_line_select_list
 
     let where =
         match where with
         | Some where -> "WHERE " + pp_expression where
         | None -> Pretty.empty
 
-    line1
-    * line2
-    * "FROM"
-    * ("  " + pp_expression from)
-    * where
+    let from = "FROM " + pp_expression from
+
+    Pretty.or_else
+        ((line1 + one_line_select_list + " ")
+         + (from + " " + where))
+        (Pretty.or_else (line1 + one_line_select_list) (line1 * multi_line_select_list)
+         * from
+         * where)
 
 let pp_sql_clause clause =
     match clause with
@@ -546,13 +563,13 @@ let pp_file (Syntax.Batches batches) =
     Pretty.vlist_sepby "" (List.map pp_batch batches)
 
 let main () =
-    let filename = get_filename ()
-    let tokens = get_file_tokens filename
+    let args = get_cli_args ()
+    let tokens = get_file_tokens args.filename
 
     match run_parser parse_file tokens with
     | Ok (x, rest_of_tokens, consumed_input) ->
         let result = pp_file x
-        let result = Pretty.to_string result
+        let result = Pretty.to_string result args.max_width
         printfn "%s" result
     | Error e -> log_error (e.ToString())
 

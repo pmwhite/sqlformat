@@ -14,8 +14,9 @@ val string: string -> t
 val empty: t
 val vlist: t list -> t
 val hlist: t list -> t
+val or_else: t -> t -> t
 
 val hlist_sepby: t -> t list -> t
 val vlist_sepby: t -> t list -> t
 
-val to_string: t -> string
+val to_string: t -> int -> string

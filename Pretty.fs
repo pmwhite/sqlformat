@@ -54,7 +54,40 @@ type t with
     static member (*)(left, right) = vertical (string left) right
     static member op_Implicit(a: string) = string a
 
-let to_string t =
+let rec shrink t =
+    match t.kind with
+    | Empty -> None
+    | String _ -> None
+    | Horizontal (left, right) ->
+        match shrink left with
+        | Some left -> Some(horizontal left right)
+        | None ->
+            match shrink right with
+            | Some right -> Some(horizontal left right)
+            | None -> None
+    | Vertical (top, bottom) ->
+        match shrink top with
+        | Some top -> Some(vertical top bottom)
+        | None ->
+            match shrink bottom with
+            | Some bottom -> Some(vertical top bottom)
+            | None -> None
+    | Or_else (primary, secondary) ->
+        match shrink primary with
+        | Some primary -> Some(or_else primary secondary)
+        | None -> Some secondary
+
+let to_string t width =
+    let rec shrink_to_width t =
+        if t.width > width then
+            match shrink t with
+            | Some t -> shrink_to_width t
+            | None -> t
+        else
+            t
+
+    let t = shrink_to_width t
+
     let rec split_last acc ts =
         match ts with
         | [] -> None
@@ -84,29 +117,6 @@ let to_string t =
         | Vertical (above, below) -> lines above @ lines below
 
     String.concat "\n" (lines t)
-
-let rec shrink t =
-    match t.kind with
-    | Empty -> None
-    | String _ -> None
-    | Horizontal (left, right) ->
-        match shrink left with
-        | Some left -> Some(horizontal left right)
-        | None ->
-            match shrink right with
-            | Some right -> Some(horizontal left right)
-            | None -> None
-    | Vertical (top, bottom) ->
-        match shrink top with
-        | Some top -> Some(vertical top bottom)
-        | None ->
-            match shrink bottom with
-            | Some bottom -> Some(vertical top bottom)
-            | None -> None
-    | Or_else (primary, secondary) ->
-        match shrink primary with
-        | Some primary -> Some(or_else primary secondary)
-        | None -> Some secondary
 
 let hlist ts = List.fold horizontal empty ts
 
