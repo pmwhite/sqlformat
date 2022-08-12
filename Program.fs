@@ -491,7 +491,7 @@ and pp_select_statement
         match distinct with
         | Some Syntax.All -> Pretty.string "ALL "
         | Some Syntax.Distinct -> Pretty.string "DISTINCT "
-        | None -> Pretty.empty
+        | None -> Pretty.vunit
 
     let line1 = "SELECT " + distinct
 
@@ -499,12 +499,12 @@ and pp_select_statement
 
     let one_line_select_list =
         match select_list with
-        | [] -> Pretty.empty
+        | [] -> Pretty.vunit
         | _ :: _ -> Pretty.hlist_sepby ", " select_list_items
 
     let multi_line_select_list =
         match select_list with
-        | [] -> Pretty.empty
+        | [] -> Pretty.vunit
         | hd :: tl ->
             let hd = "  " + pp_expression hd
             let tl = List.map (fun item -> ", " + item) select_list_items
@@ -515,7 +515,7 @@ and pp_select_statement
     let where =
         match where with
         | Some where -> "WHERE " + pp_expression where
-        | None -> Pretty.empty
+        | None -> Pretty.vunit
 
     let from = "FROM " + pp_expression from
 
@@ -531,7 +531,7 @@ let pp_sql_clause clause =
     | Syntax.Dml { locals = locals; body = body } ->
         let locals =
             match locals with
-            | [] -> Pretty.empty
+            | [] -> Pretty.vunit
             | _ :: _ ->
                 let f
                     ({ name = name
@@ -541,7 +541,7 @@ let pp_sql_clause clause =
                     let columns =
                         match columns with
                         | Some columns -> Pretty.hlist_sepby ", " (List.map Pretty.string columns)
-                        | None -> Pretty.empty
+                        | None -> Pretty.vunit
 
                     (name + "(" + columns + ")")
                     * ("AS (" + pp_select_statement query + ")")
@@ -560,7 +560,7 @@ let pp_batch batch =
     | Syntax.Sql clauses -> Pretty.vlist (List.map pp_sql_clause clauses)
 
 let pp_file (Syntax.Batches batches) =
-    Pretty.vlist_sepby "" (List.map pp_batch batches)
+    Pretty.vlist_sepby Pretty.hunit (List.map pp_batch batches)
 
 let main () =
     let args = get_cli_args ()

@@ -11,7 +11,9 @@ type t =
     static member op_Implicit: string -> t
 
 val string: string -> t
-val empty: t
+
+val vunit: t
+val hunit: t
 val vlist: t list -> t
 val hlist: t list -> t
 val or_else: t -> t -> t

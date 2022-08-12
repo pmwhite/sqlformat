@@ -1,7 +1,7 @@
 module Pretty
 
 type kind =
-    | Empty
+    | VUnit
     | String of string
     | Horizontal of t * t
     | Vertical of t * t
@@ -13,11 +13,12 @@ and t =
       height: int
       last_line_width: int }
 
-let empty =
-    { kind = Empty
-      width = 0
+let vunit =
+    { kind = VUnit
+      width = 1
       height = 0
       last_line_width = 0 }
+
 
 let string (s: string) =
     assert (not (s.Contains '\n'))
@@ -26,6 +27,8 @@ let string (s: string) =
       width = s.Length
       height = 1
       last_line_width = s.Length }
+
+let hunit = string ""
 
 let horizontal left right =
     { kind = Horizontal(left, right)
@@ -56,7 +59,7 @@ type t with
 
 let rec shrink t =
     match t.kind with
-    | Empty -> None
+    | VUnit -> None
     | String _ -> None
     | Horizontal (left, right) ->
         match shrink left with
@@ -96,7 +99,7 @@ let to_string t width =
 
     let rec lines t =
         match t.kind with
-        | Empty -> []
+        | VUnit -> []
         | String s -> [ s ]
         | Horizontal (left, right) ->
             let left_lines = lines left
@@ -118,13 +121,13 @@ let to_string t width =
 
     String.concat "\n" (lines t)
 
-let hlist ts = List.fold horizontal empty ts
+let hlist ts = List.fold horizontal hunit ts
 
-let vlist ts = List.fold vertical empty ts
+let vlist ts = List.fold vertical vunit ts
 
 let sepby f ts =
     match ts with
-    | [] -> empty
+    | [] -> vunit
     | hd :: tl -> List.fold f hd tl
 
 let hlist_sepby sep ts = sepby (fun a b -> a + sep + b) ts
