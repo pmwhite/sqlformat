@@ -217,6 +217,11 @@ module Syntax =
 
     type Path = Path of string list
 
+    type JoinKind =
+        | Left
+        | Right
+        | Outer
+
     type FunctionCall =
         { function_name: Path
           parameters: Expression list }
@@ -243,10 +248,17 @@ module Syntax =
           unit: SelectTopUnit
           with_ties: bool }
 
+    and Join =
+        { kind: JoinKind
+          on: Expression
+          table: Expression }
+
+    and SelectFrom = { joins: Join list; table: Expression }
+
     and SelectStatement =
         { distinct: SelectDistinct option
           select_list: Expression list
-          from: Expression
+          from: SelectFrom
           where: Expression option
           top: SelectTop option }
 
@@ -370,7 +382,7 @@ and parse_select_statement: Syntax.SelectStatement Parser =
         let! distinct = optional parse_select_distinct
         let! select_list = sep_by1 (parse_keyword TSqlTokenType.Comma) parse_expression
         do! parse_keyword TSqlTokenType.From
-        let! from = parse_expression
+        let! from = parse_select_from
 
         let! where =
             optional (
@@ -389,6 +401,33 @@ and parse_select_statement: Syntax.SelectStatement Parser =
               distinct = distinct
               top = None }
     }
+
+and parse_select_from: Syntax.SelectFrom Parser =
+    parser {
+        let! table = parse_expression
+
+        let! joins = parse_many0 parse_join
+
+        return { table = table; joins = joins }
+    }
+
+and parse_join: Syntax.Join Parser =
+    parser {
+        let! kind = parse_join_kind
+        let! table = parse_expression
+        do! parse_keyword TSqlTokenType.On
+        let! on = parse_expression
+
+        return { kind = kind; on = on; table = table }
+    }
+
+
+and parse_join_kind: Syntax.JoinKind Parser =
+    choice [ parser {
+                 do! parse_keyword TSqlTokenType.Left
+                 do! parse_keyword TSqlTokenType.Join
+                 return Syntax.Left
+             } ]
 
 let parse_dml_clause_body: Syntax.DmlClauseBody Parser =
     choice [ parser {
@@ -470,7 +509,7 @@ let rec pp_expression expression : Pretty.t =
         + ")"
     | Syntax.As { name = name; expression = expression } ->
         let expression = pp_expression expression
-        Pretty.or_else (expression + " AS " + name) (expression * ("AS " + name))
+        Pretty.pre_or_else (expression + " AS " + name) (expression * ("AS " + name))
     | Syntax.In { condition = condition
                   subquery = subquery } ->
         let line1 = pp_expression condition + " IN"
@@ -503,28 +542,43 @@ and pp_select_statement
         | _ :: _ -> Pretty.hlist_sepby ", " select_list_items
 
     let multi_line_select_list =
-        match select_list with
+        match select_list_items with
         | [] -> Pretty.vunit
         | hd :: tl ->
-            let hd = "  " + pp_expression hd
-            let tl = List.map (fun item -> ", " + item) select_list_items
+            let hd = "  " + hd
+            let tl = List.map (fun item -> ", " + item) tl
             "    " + Pretty.vlist (hd :: tl)
 
-    let select_list = Pretty.or_else one_line_select_list multi_line_select_list
+    let select_list = Pretty.pre_or_else one_line_select_list multi_line_select_list
 
     let where =
         match where with
         | Some where -> "WHERE " + pp_expression where
         | None -> Pretty.vunit
 
-    let from = "FROM " + pp_expression from
+    let from = "FROM " + pp_select_from from
 
-    Pretty.or_else
+    Pretty.pre_or_else
         ((line1 + one_line_select_list + " ")
          + (from + " " + where))
-        (Pretty.or_else (line1 + one_line_select_list) (line1 * multi_line_select_list)
+        (Pretty.pre_or_else (line1 + one_line_select_list) (line1 * multi_line_select_list)
          * from
          * where)
+
+and pp_select_from ({ table = table; joins = joins }: Syntax.SelectFrom) : Pretty.t =
+    let table = pp_expression table
+    Pretty.vlist (table :: List.map pp_join joins)
+
+and pp_join ({ kind = kind; on = on; table = table }: Syntax.Join) : Pretty.t =
+    let kind =
+        match kind with
+        | Syntax.Left -> "LEFT JOIN "
+        | Syntax.Right -> "RIGHT JOIN "
+        | Syntax.Outer -> "OUTER JOIN "
+
+    let table = pp_expression table
+    let on = pp_expression on
+    Pretty.pre_or_else (kind + table + " ON " + on) (kind + (table * ("ON " + on)))
 
 let pp_sql_clause clause =
     match clause with
@@ -568,14 +622,19 @@ let main () =
 
     match run_parser parse_file tokens with
     | Ok (x, rest_of_tokens, consumed_input) ->
+        printfn "Parsed."
         let result = pp_file x
+        printfn "Formatted."
         let result = Pretty.to_string result args.max_width
+        printfn "Layed out."
         printfn "%s" result
     | Error e -> log_error (e.ToString())
 
     printfn ""
 
 let () =
+    printfn "Started."
+
     try
         main ()
     with

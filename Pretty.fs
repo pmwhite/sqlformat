@@ -5,7 +5,8 @@ type kind =
     | String of string
     | Horizontal of t * t
     | Vertical of t * t
-    | Or_else of t * t
+    | Post_or_else of t * t
+    | Pre_or_else of t * t
 
 and t =
     { kind: kind
@@ -42,8 +43,14 @@ let vertical left right =
       height = left.height + right.height
       last_line_width = right.last_line_width }
 
-let or_else primary secondary =
-    { kind = Or_else(primary, secondary)
+let post_or_else primary secondary =
+    { kind = Post_or_else(primary, secondary)
+      width = primary.width
+      height = primary.height
+      last_line_width = primary.last_line_width }
+
+let pre_or_else primary secondary =
+    { kind = Pre_or_else(primary, secondary)
       width = primary.width
       height = primary.height
       last_line_width = primary.last_line_width }
@@ -57,39 +64,41 @@ type t with
     static member (*)(left, right) = vertical (string left) right
     static member op_Implicit(a: string) = string a
 
-let rec shrink t =
+let rec step t max_width =
     match t.kind with
     | VUnit -> None
     | String _ -> None
     | Horizontal (left, right) ->
-        match shrink left with
+        match step left max_width with
         | Some left -> Some(horizontal left right)
         | None ->
-            match shrink right with
+            match step right (max_width - left.width) with
             | Some right -> Some(horizontal left right)
             | None -> None
     | Vertical (top, bottom) ->
-        match shrink top with
-        | Some top -> Some(vertical top bottom)
+        let step_part t =
+            match t.width > max_width with
+            | true -> step t max_width
+            | false -> None
+
+        match step_part top with
+        | Some top ->
+            match step_part bottom with
+            | Some bottom -> Some(vertical top bottom)
+            | None -> Some(vertical top bottom)
         | None ->
-            match shrink bottom with
+            match step_part bottom with
             | Some bottom -> Some(vertical top bottom)
             | None -> None
-    | Or_else (primary, secondary) ->
-        match shrink primary with
-        | Some primary -> Some(or_else primary secondary)
+    | Post_or_else (primary, secondary) ->
+        match step primary max_width with
+        | Some primary -> Some(post_or_else primary secondary)
         | None -> Some secondary
+    | Pre_or_else (_, secondary) -> Some secondary
+
 
 let to_string t width =
-    let rec shrink_to_width t =
-        if t.width > width then
-            match shrink t with
-            | Some t -> shrink_to_width t
-            | None -> t
-        else
-            t
 
-    let t = shrink_to_width t
 
     let rec split_last acc ts =
         match ts with
@@ -116,8 +125,19 @@ let to_string t width =
                     left_rest
                     @ (left_last + right_first :: right_rest)
             | None -> right_lines
-        | Or_else (primary, _) -> lines primary
+        | Post_or_else (primary, _) -> lines primary
+        | Pre_or_else (primary, _) -> lines primary
         | Vertical (above, below) -> lines above @ lines below
+
+    let rec shrink_to_width t =
+        if t.width > width then
+            match step t width with
+            | Some t -> shrink_to_width t
+            | None -> t
+        else
+            t
+
+    let t = shrink_to_width t
 
     String.concat "\n" (lines t)
 

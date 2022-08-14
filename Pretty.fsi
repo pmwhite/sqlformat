@@ -16,7 +16,8 @@ val vunit: t
 val hunit: t
 val vlist: t list -> t
 val hlist: t list -> t
-val or_else: t -> t -> t
+val post_or_else: t -> t -> t
+val pre_or_else: t -> t -> t
 
 val hlist_sepby: t -> t list -> t
 val vlist_sepby: t -> t list -> t
