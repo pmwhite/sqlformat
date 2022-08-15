@@ -20,7 +20,6 @@ let vunit =
       height = 0
       last_line_width = 0 }
 
-
 let string (s: string) =
     assert (not (s.Contains '\n'))
 
@@ -34,14 +33,14 @@ let hunit = string ""
 let horizontal left right =
     { kind = Horizontal(left, right)
       width = max left.width (left.last_line_width + right.width)
-      height = max left.height right.height
+      height = left.height + (max 0 (right.height - 1))
       last_line_width = left.last_line_width + right.last_line_width }
 
-let vertical left right =
-    { kind = Vertical(left, right)
-      width = max left.width right.width
-      height = left.height + right.height
-      last_line_width = right.last_line_width }
+let vertical top bottom =
+    { kind = Vertical(top, bottom)
+      width = max top.width bottom.width
+      height = top.height + bottom.height
+      last_line_width = bottom.last_line_width }
 
 let post_or_else primary secondary =
     { kind = Post_or_else(primary, secondary)
