@@ -4,6 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Syntax.fs" />
     <Compile Include="Pretty.fsi" />
     <Compile Include="Pretty.fs" />
     <Compile Include="Program.fs" />
